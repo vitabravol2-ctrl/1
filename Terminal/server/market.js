@@ -1,4 +1,4 @@
-const { readJson, writeJson } = require('./store');
+const { writeJson } = require('./store');
 const { logError } = require('./logger');
 
 const BINANCE_BASE = 'https://api.binance.com';
@@ -40,7 +40,7 @@ function mutate(pair, snap) {
   const bid = Number((price - spreadAbs / 2).toFixed(3));
   const ask = Number((price + spreadAbs / 2).toFixed(3));
   const spreadPct = Number((((ask - bid) / price) * 100).toFixed(4));
-  return { ...snap, price, bid, ask, spreadPct, source: 'DEMO', sourceStatus: 'FALLBACK_DEMO', updatedAt: new Date().toISOString() };
+  return { ...snap, price, bid, ask, spreadPct, source: 'DEMO', sourceStatus: 'DEMO', updatedAt: new Date().toISOString() };
 }
 
 function refreshDemoMarket() {
@@ -59,8 +59,13 @@ async function fetchJson(url) {
   return r.json();
 }
 
+function isFallbackEligibleError(e) {
+  const msg = String(e?.message || '');
+  return /HTTP (451|403|429)/.test(msg) || /fetch failed|network|ECONN|ENOTFOUND|ETIMEDOUT/i.test(msg);
+}
+
 async function fetchBinancePair(pair) {
-  const [price, bookTicker, ticker24h, kline1m, kline5m, kline15m] = await Promise.all([
+  const [price, bookTicker, ticker24h, kline1m, _kline5m, kline15m] = await Promise.all([
     fetchJson(`${BINANCE_BASE}/api/v3/ticker/price?symbol=${pair}`),
     fetchJson(`${BINANCE_BASE}/api/v3/ticker/bookTicker?symbol=${pair}`),
     fetchJson(`${BINANCE_BASE}/api/v3/ticker/24hr?symbol=${pair}`),
@@ -72,7 +77,6 @@ async function fetchBinancePair(pair) {
   const bid = Number(bookTicker.bidPrice);
   const ask = Number(bookTicker.askPrice);
   const spreadPct = Number((((ask - bid) / p) * 100).toFixed(4));
-  const klines = { '1m': kline1m, '5m': kline5m, '15m': kline15m };
   return {
     price: p,
     bid,
@@ -83,11 +87,74 @@ async function fetchBinancePair(pair) {
     priceChange24hPct: Number(ticker24h.priceChangePercent),
     trend: computeTrend(kline15m),
     volatility: computeVolatility(kline15m),
-    klines,
+    klines: { '1m': kline1m, '15m': kline15m },
     source: 'BINANCE_PUBLIC',
-    sourceStatus: 'BINANCE_OK',
+    sourceStatus: 'BINANCE_PUBLIC',
     updatedAt: new Date().toISOString()
   };
+}
+
+function normalizePairForAlt(pair) {
+  return pair.replace('USDT', '-USD');
+}
+
+async function fetchCoinGeckoPair(pair) {
+  const mapped = { BTCUSDT: 'bitcoin', ETHUSDT: 'ethereum', BNBUSDT: 'binancecoin', SOLUSDT: 'solana' }[pair];
+  if (!mapped) throw new Error(`Unsupported pair ${pair}`);
+  const data = await fetchJson(`https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=${mapped}`);
+  const row = data?.[0];
+  if (!row?.current_price) throw new Error('CoinGecko empty data');
+  const price = Number(row.current_price);
+  const spreadAbs = Math.max(price * 0.0004, 0.01);
+  const bid = Number((price - spreadAbs / 2).toFixed(3));
+  const ask = Number((price + spreadAbs / 2).toFixed(3));
+  return {
+    price,
+    bid,
+    ask,
+    spreadPct: Number((((ask - bid) / price) * 100).toFixed(4)),
+    volume24h: Number(row.total_volume || 0),
+    volume: Number(row.total_volume || 0),
+    priceChange24hPct: Number(row.price_change_percentage_24h || 0),
+    volatility: 'MEDIUM',
+    trend: Number(row.price_change_percentage_24h || 0) >= 0 ? 'UP' : 'DOWN',
+    source: 'ALT_PUBLIC',
+    sourceStatus: 'ALT_PUBLIC',
+    updatedAt: new Date().toISOString()
+  };
+}
+
+async function fetchCoinbasePair(pair) {
+  const product = normalizePairForAlt(pair);
+  const [ticker, stats] = await Promise.all([
+    fetchJson(`https://api.exchange.coinbase.com/products/${product}/ticker`),
+    fetchJson(`https://api.exchange.coinbase.com/products/${product}/stats`)
+  ]);
+  const price = Number(ticker.price);
+  const bid = Number(ticker.bid || price * 0.9998);
+  const ask = Number(ticker.ask || price * 1.0002);
+  return {
+    price,
+    bid,
+    ask,
+    spreadPct: Number((((ask - bid) / price) * 100).toFixed(4)),
+    volume24h: Number(stats.volume || 0),
+    volume: Number(stats.volume || 0),
+    priceChange24hPct: stats.open ? Number((((price - Number(stats.open)) / Number(stats.open)) * 100).toFixed(4)) : 0,
+    volatility: 'MEDIUM',
+    trend: stats.open && price >= Number(stats.open) ? 'UP' : 'DOWN',
+    source: 'ALT_PUBLIC',
+    sourceStatus: 'ALT_PUBLIC',
+    updatedAt: new Date().toISOString()
+  };
+}
+
+async function fetchAltPublicPair(pair) {
+  try {
+    return await fetchCoinGeckoPair(pair);
+  } catch {
+    return fetchCoinbasePair(pair);
+  }
 }
 
 async function refreshMarket() {
@@ -98,7 +165,20 @@ async function refreshMarket() {
     writeJson('market', state);
     return state;
   } catch (e) {
-    logError('BINANCE_PUBLIC_ERROR', e.message, { source: 'BINANCE_PUBLIC' });
+    if (isFallbackEligibleError(e)) {
+      logError('BINANCE_PUBLIC_ERROR', e.message, { source: 'BINANCE_PUBLIC' }, { dedupWindowMs: 60000 });
+    } else {
+      logError('BINANCE_PUBLIC_ERROR', e.message, { source: 'BINANCE_PUBLIC' });
+    }
+  }
+
+  try {
+    const rows = await Promise.all(pairs.map(async (pair) => [pair, await fetchAltPublicPair(pair)]));
+    const state = Object.fromEntries(rows);
+    writeJson('market', state);
+    return state;
+  } catch (e) {
+    logError('ALT_PUBLIC_ERROR', e.message, { source: 'ALT_PUBLIC' }, { dedupWindowMs: 60000 });
     return refreshDemoMarket();
   }
 }
