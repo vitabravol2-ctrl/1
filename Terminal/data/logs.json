@@ -1,1 +1,9 @@
-[]
+[
+  {
+    "time": "2026-05-04T19:49:43.955Z",
+    "type": "AI_INIT",
+    "message": "OPENAI_API_KEY is missing. AI mode switched to SIM.",
+    "details": {},
+    "dedupKey": "AI_INIT|unknown|OPENAI_API_KEY is missing. AI mode switched to SIM."
+  }
+]
