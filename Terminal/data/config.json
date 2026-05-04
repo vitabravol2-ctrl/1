@@ -1,0 +1,11 @@
+{
+  "version": "0.1.0",
+  "mode": "DRY_RUN",
+  "liveTradingEnabled": false,
+  "aiEnabled": false,
+  "binanceEnabled": false,
+  "maxRiskUsdt": 50,
+  "maxTpPct": 5,
+  "maxSlPct": 10,
+  "emergencyStop": false
+}
