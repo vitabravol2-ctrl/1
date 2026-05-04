@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 
 const dataDir = path.join(__dirname, '..', 'data');
+const brokenDir = path.join(dataDir, 'broken');
 
 const defaults = {
   config: {
@@ -42,6 +43,7 @@ const defaults = {
 };
 
 function filePath(name) { return path.join(dataDir, `${name}.json`); }
+
 function ensureDataFiles() {
   if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
   Object.entries(defaults).forEach(([name, value]) => {
@@ -49,7 +51,47 @@ function ensureDataFiles() {
     if (!fs.existsSync(fp)) fs.writeFileSync(fp, JSON.stringify(value, null, 2));
   });
 }
-function readJson(name) { return JSON.parse(fs.readFileSync(filePath(name), 'utf-8')); }
-function writeJson(name, value) { fs.writeFileSync(filePath(name), JSON.stringify(value, null, 2)); return value; }
 
-module.exports = { ensureDataFiles, readJson, writeJson, defaults };
+function ensureBrokenDir() {
+  if (!fs.existsSync(brokenDir)) fs.mkdirSync(brokenDir, { recursive: true });
+}
+
+function backupBrokenJson(name, raw) {
+  ensureBrokenDir();
+  const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const backupPath = path.join(brokenDir, `${name}.${timestamp}.json`);
+  fs.writeFileSync(backupPath, raw);
+}
+
+function defaultValue(name) {
+  const value = defaults[name];
+  return value === undefined ? null : JSON.parse(JSON.stringify(value));
+}
+
+function safeReadJson(name) {
+  const fp = filePath(name);
+  try {
+    return JSON.parse(fs.readFileSync(fp, 'utf-8'));
+  } catch {
+    const fallback = defaultValue(name);
+    try {
+      const raw = fs.existsSync(fp) ? fs.readFileSync(fp, 'utf-8') : '';
+      backupBrokenJson(name, raw);
+    } catch {
+      // no-op: keep server alive even if backup fails
+    }
+    writeJson(name, fallback);
+    return fallback;
+  }
+}
+
+function readJson(name) {
+  return safeReadJson(name);
+}
+
+function writeJson(name, value) {
+  fs.writeFileSync(filePath(name), JSON.stringify(value, null, 2));
+  return value;
+}
+
+module.exports = { ensureDataFiles, readJson, safeReadJson, writeJson, defaults };
