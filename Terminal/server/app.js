@@ -27,7 +27,7 @@ let lastSuggested = [];
 
 app.get('/api/status', (_q, res) => res.json({ server: 'OK', mode: 'DRY_RUN', liveTradingBlocked: true, marketSource: readJson('runtime').marketSource || 'DEMO', aiMode: ai.getMode() }));
 app.get('/api/config', (_q, res) => res.json(readJson('config')));
-app.get('/api/market', async (_q, res) => { const market = await getAllMarket(); const r=readJson('runtime'); r.marketSource = Object.values(market)[0]?.source?.includes('BINANCE') ? 'BINANCE' : 'DEMO'; writeJson('runtime', r); res.json(market); });
+app.get('/api/market', async (_q, res) => { const market = await getAllMarket(); const r=readJson('runtime'); r.marketSource = Object.values(market)[0]?.source || 'DEMO'; writeJson('runtime', r); res.json(market); });
 app.get('/api/market/:pair', async (q, res) => {
   const data = await getMarketByPair(q.params.pair.toUpperCase());
   if (!data) return res.status(404).json({ error: 'Pair not found' });
