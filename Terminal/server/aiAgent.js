@@ -1,10 +1,32 @@
-const OpenAI = require('openai');
 const { getStrategies } = require('./strategyLibrary');
 const { readJson } = require('./store');
-const hasKey = Boolean(process.env.OPENAI_API_KEY);
-const client = hasKey ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY }) : null;
+const { logError } = require('./logger');
 
-function getMode() { return hasKey ? 'GPT' : 'SIM'; }
+let client = null;
+let mode = 'SIM';
+
+(function initOpenAI() {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) {
+    logError('AI_INIT', 'OPENAI_API_KEY is missing. AI mode switched to SIM.');
+    return;
+  }
+
+  try {
+    // Delayed require so server can start even if package is missing.
+    // eslint-disable-next-line global-require
+    const OpenAI = require('openai');
+    client = new OpenAI({ apiKey });
+    mode = 'GPT';
+  } catch (e) {
+    mode = 'SIM';
+    logError('AI_INIT', 'OpenAI SDK is unavailable. AI mode switched to SIM.', {
+      error: e.message
+    });
+  }
+})();
+
+function getMode() { return mode; }
 
 function analyzeMarket(pair, snap) {
   if (!snap) return `${pair}: market snapshot unavailable.`;
@@ -52,16 +74,31 @@ async function askAgent(message, runtime, snap) {
       requiresConfirmation: true
     };
   }
-  const datapack = buildDataPack(runtime, snap);
-  const completion = await client.chat.completions.create({
-    model: 'gpt-4.1-mini',
-    response_format: { type: 'json_object' },
-    messages: [
-      { role: 'system', content: 'You are a trading assistant. You can not place orders. Return strict JSON with keys: intent,answer,suggestedStrategies,strategyPatch,riskNotes,requiresConfirmation.' },
-      { role: 'user', content: JSON.stringify({ message, datapack }) }
-    ]
-  });
-  return JSON.parse(completion.choices[0].message.content);
+
+  try {
+    const datapack = buildDataPack(runtime, snap);
+    const completion = await client.chat.completions.create({
+      model: 'gpt-4.1-mini',
+      response_format: { type: 'json_object' },
+      messages: [
+        { role: 'system', content: 'You are a trading assistant. You can not place orders. Return strict JSON with keys: intent,answer,suggestedStrategies,strategyPatch,riskNotes,requiresConfirmation.' },
+        { role: 'user', content: JSON.stringify({ message, datapack }) }
+      ]
+    });
+    return JSON.parse(completion.choices[0].message.content);
+  } catch (e) {
+    logError('AI_REQUEST', 'OpenAI request failed. AI mode switched to SIM response.', {
+      error: e.message
+    });
+    return {
+      intent: 'EXPLAIN',
+      answer: `AI SIM: ${message}`,
+      suggestedStrategies: [],
+      strategyPatch: {},
+      riskNotes: ['SIM fallback due to GPT error'],
+      requiresConfirmation: true
+    };
+  }
 }
 
 module.exports = { analyzeMarket, suggestStrategies, parseUserIntent, askAgent, getMode, buildDataPack };
