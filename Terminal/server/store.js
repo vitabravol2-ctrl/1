@@ -68,14 +68,46 @@ function defaultValue(name) {
   return value === undefined ? null : JSON.parse(JSON.stringify(value));
 }
 
+function sanitizeMergeConflictJson(raw) {
+  if (typeof raw !== 'string' || raw.length === 0) return raw;
+  const lines = raw.split(/\r?\n/);
+  if (!lines.some((line) => line.startsWith('<<<<<<< ') || line.startsWith('=======') || line.startsWith('>>>>>>> '))) {
+    return raw;
+  }
+
+  const cleaned = [];
+  let inConflict = false;
+  let useIncoming = false;
+  for (const line of lines) {
+    if (line.startsWith('<<<<<<< ')) {
+      inConflict = true;
+      useIncoming = false;
+      continue;
+    }
+    if (inConflict && line.startsWith('=======')) {
+      useIncoming = true;
+      continue;
+    }
+    if (inConflict && line.startsWith('>>>>>>> ')) {
+      inConflict = false;
+      useIncoming = false;
+      continue;
+    }
+    if (!inConflict || useIncoming) cleaned.push(line);
+  }
+
+  return cleaned.join('\n');
+}
+
 function safeReadJson(name) {
   const fp = filePath(name);
+  const raw = fs.existsSync(fp) ? fs.readFileSync(fp, 'utf-8') : '';
+  const candidate = sanitizeMergeConflictJson(raw);
   try {
-    return JSON.parse(fs.readFileSync(fp, 'utf-8'));
+    return JSON.parse(candidate);
   } catch {
     const fallback = defaultValue(name);
     try {
-      const raw = fs.existsSync(fp) ? fs.readFileSync(fp, 'utf-8') : '';
       backupBrokenJson(name, raw);
     } catch {
       // no-op: keep server alive even if backup fails
