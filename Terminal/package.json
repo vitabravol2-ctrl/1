@@ -1,6 +1,6 @@
 {
   "name": "local-ai-trading-terminal",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Local browser-server AI Trading Terminal foundation (DRY-RUN only)",
   "main": "server/app.js",
   "scripts": {
