@@ -25,11 +25,11 @@ app.get('/', (_req, res) => res.sendFile(path.join(__dirname, '..', 'web', 'inde
 
 let lastSuggested = [];
 
-app.get('/api/status', (_q, res) => res.json({ server: 'OK', mode: 'DRY_RUN', liveTradingBlocked: true }));
+app.get('/api/status', (_q, res) => res.json({ server: 'OK', mode: 'DRY_RUN', liveTradingBlocked: true, marketSource: readJson('runtime').marketSource || 'DEMO', aiMode: ai.getMode() }));
 app.get('/api/config', (_q, res) => res.json(readJson('config')));
-app.get('/api/market', (_q, res) => res.json(getAllMarket()));
-app.get('/api/market/:pair', (q, res) => {
-  const data = getMarketByPair(q.params.pair.toUpperCase());
+app.get('/api/market', async (_q, res) => { const market = await getAllMarket(); const r=readJson('runtime'); r.marketSource = Object.values(market)[0]?.source?.includes('BINANCE') ? 'BINANCE' : 'DEMO'; writeJson('runtime', r); res.json(market); });
+app.get('/api/market/:pair', async (q, res) => {
+  const data = await getMarketByPair(q.params.pair.toUpperCase());
   if (!data) return res.status(404).json({ error: 'Pair not found' });
   return res.json(data);
 });
@@ -73,10 +73,10 @@ app.post('/api/cancel-plan', (_req, res) => { const r = readJson('runtime'); r.p
 app.post('/api/stop-strategy', (_req, res) => { const r = readJson('runtime'); r.activeStrategy = null; r.status = 'IDLE'; writeJson('runtime', r); remember('strategy_stopped', r.selectedPair, 'stop strategy', 'idle'); res.json({ ok: true, runtime: r }); });
 app.post('/api/emergency-stop', (_req, res) => { const c = readJson('config'); const r = readJson('runtime'); c.emergencyStop = true; r.activeStrategy = null; r.status = 'STOPPED'; writeJson('config', c); writeJson('runtime', r); stopEngine(); logError('EMERGENCY_STOP', 'Emergency stop activated'); res.json({ ok: true }); });
 
-app.post('/api/chat', (req, res) => {
+app.post('/api/chat', async (req, res) => {
   const message = String(req.body.message || '');
   const runtime = readJson('runtime');
-  const snapshot = getMarketByPair(runtime.selectedPair);
+  const snapshot = await getMarketByPair(runtime.selectedPair);
   const intent = ai.parseUserIntent(message, runtime.selectedPair);
   if (intent.action === 'SUGGEST') {
     lastSuggested = ai.suggestStrategies(runtime.selectedPair, snapshot);
@@ -99,7 +99,8 @@ app.post('/api/chat', (req, res) => {
     return res.json({ ok: true, type: 'status', text: 'Strategy stopped. Runtime is IDLE.' });
   }
   if (intent.action === 'STATUS') return res.json({ ok: true, type: 'status', text: `Runtime: ${runtime.status}, pair: ${runtime.selectedPair}, pnl: ${runtime.pnlUsdt} USDT` });
-  res.json({ ok: true, type: 'chat', text: ai.buildAnswer(message, { runtime }) });
+  const gpt = await ai.askAgent(message, runtime, snapshot);
+  res.json({ ok: true, type: 'agent', agent: gpt, text: gpt.answer });
 });
 
 app.post('/api/report', (_req, res) => {
@@ -112,3 +113,7 @@ app.post('/api/report', (_req, res) => {
 });
 
 app.listen(3000, () => console.log('Local AI Trading Terminal on http://localhost:3000'));
+
+app.get('/api/test-binance', async (_req, res) => { const m = await getMarketByPair('BTCUSDT'); res.json({ ok: true, source: m?.sourceStatus || 'FALLBACK_DEMO', price: m?.price }); });
+
+app.post('/api/test-gpt', async (req, res) => { const runtime = readJson('runtime'); const snap = await getMarketByPair(runtime.selectedPair); const r = await ai.askAgent(req.body.message || 'какие стратегии предложишь?', runtime, snap); res.json({ ok: true, aiMode: ai.getMode(), response: r }); });
