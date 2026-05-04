@@ -1,9 +1,12 @@
 <!doctype html><html><head><meta charset='utf-8'/><meta name='viewport' content='width=device-width,initial-scale=1'/><title>Local AI Trading Terminal</title><link rel='stylesheet' href='/web/style.css'></head><body>
-<header><div><h1>Local AI Trading Terminal <span>v0.2.2</span></h1><p id='topStatus'>DRY-RUN | AI SIM | Market DEMO</p></div><div class='header-actions'><button id='toggleSettingsBtn'>Settings</button><button id='emergencyBtn' class='danger'>Emergency Stop</button></div></header>
-<main>
-<section class='chat'><h2>AI Operator Chat</h2><div id='chatLog' class='panel grow'></div><div class='quick'><button data-q='проанализируй пару'>Analyze</button><button data-q='какие стратегии предложишь'>Suggest</button><button id='testGptBtn'>Test GPT</button><button id='startSelected'>Start selected</button><button id='stopBtn'>Stop</button><button id='reportBtn'>Report</button></div><form id='chatForm'><textarea id='chatInput' rows='2' placeholder='Введите команду...'></textarea><button>Send</button></form></section>
-<section class='workspace'><h2>Market / Strategy Workspace</h2><div class='line'><label>Pair <select id='pair'><option>BTCUSDT</option><option>ETHUSDT</option><option>BNBUSDT</option><option>SOLUSDT</option></select></label><button id='testBinanceBtn'>Test Binance</button></div><div id='market' class='panel stable'></div><div id='strategy' class='panel stable'></div><div id='pendingPlan' class='panel pending'></div><div id='settingsPanel' class='panel compact hidden'><h3>Settings</h3><p>OpenAI key: loaded from .env (hidden)</p><p>Public market source: Binance -> Alt -> Demo fallback</p><p>Binance private/live: LOCKED</p></div></section>
-</main>
-<section class='bottom'><div class='panel fixed'><h3>Active Runtime</h3><pre id='runtime'></pre></div><div class='panel fixed'><h3>Trades (DRY-RUN)</h3><div id='trades'></div></div><div class='panel fixed'><h3>Errors only</h3><div id='errors'></div></div></section>
-<div id='reportModal' class='modal hidden'><div class='panel'><h3>Report</h3><textarea id='reportText'></textarea><button id='closeReport'>Close</button></div></div>
+<header><div><h1>Local AI Trading Terminal <span>v0.3.0</span></h1><p id='topStatus'></p></div></header>
+<main><section class='workspace'><h2>Trading Control</h2>
+<div class='quick'>
+<button id='startSelected'>Start Strategy</button><button id='confirmPlan'>Confirm Plan</button><button id='cancelPlan'>Cancel Plan</button><button id='pauseBtn'>Pause</button><button id='resumeBtn'>Resume</button><button id='stopBtn'>Stop</button><button id='emergencyBtn' class='danger'>Emergency Stop</button>
+</div>
+<div class='line'><label>Pair <select id='pair'><option>BTCUSDT</option><option>ETHUSDT</option><option>BNBUSDT</option><option>SOLUSDT</option></select></label></div>
+<div id='market' class='panel'></div><div id='runtime' class='panel'></div><div id='trades' class='panel'></div><div id='errors' class='panel'></div>
+<h3>Settings</h3><div id='settingsPanel' class='panel'></div><button id='saveSettings'>Save Settings</button>
+<div class='quick'><button id='testPublic'>Test Binance Public</button><button id='testPrivate'>Test Binance Private Read-Only</button><button id='testTestnet'>Test Binance Testnet</button><button id='checkFilters'>Check Symbol Filters</button></div>
+</section></main>
 <script src='/web/app.js'></script></body></html>

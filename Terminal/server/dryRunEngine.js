@@ -1,53 +1,30 @@
 const { readJson, writeJson } = require('./store');
+const { remember } = require('./memory');
 
 let timer = null;
 
-function randomSide() { return Math.random() > 0.5 ? 'LONG' : 'SHORT'; }
-function randomPnl(risk) { return Number(((Math.random() * 2 - 1) * (risk * 0.2)).toFixed(2)); }
-
 function tick(getPrice) {
   const runtime = readJson('runtime');
+  const config = readJson('config');
   if (!runtime.activeStrategy || runtime.status !== 'RUNNING') return;
   const trades = readJson('trades');
-  if (Math.random() < 0.65) {
-    const price = getPrice(runtime.selectedPair)?.price || 100;
-    const riskUsdt = runtime.activeStrategy.settings.riskUsdt || 20;
-    const pnlUsdt = randomPnl(riskUsdt);
-    const entryPrice = Number((price * (1 + (Math.random() * 0.003 - 0.0015))).toFixed(3));
-    const exitPrice = Number((entryPrice * (1 + pnlUsdt / Math.max(riskUsdt * 20, 1))).toFixed(3));
-    trades.push({
-      id: `trade_${Date.now()}`,
-      time: new Date().toISOString(),
-      pair: runtime.selectedPair,
-      strategy: runtime.activeStrategy.strategyName,
-      side: randomSide(),
-      entryPrice,
-      exitPrice,
-      qty: Number((riskUsdt / Math.max(entryPrice, 1)).toFixed(6)),
-      riskUsdt,
-      pnlUsdt,
-      pnlPct: Number(((pnlUsdt / Math.max(riskUsdt, 1)) * 100).toFixed(2)),
-      status: 'CLOSED',
-      mode: 'DRY_RUN'
-    });
-    writeJson('trades', trades.slice(-300));
-  }
-  const all = readJson('trades');
-  const pnlUsdt = Number(all.reduce((sum, t) => sum + t.pnlUsdt, 0).toFixed(2));
-  const totalRisk = all.reduce((sum, t) => sum + (t.riskUsdt || 0), 0) || 1;
-  runtime.pnlUsdt = pnlUsdt;
-  runtime.pnlPct = Number(((pnlUsdt / totalRisk) * 100).toFixed(2));
+  const price = getPrice(runtime.selectedPair)?.price || 100;
+  const riskUsdt = runtime.activeStrategy.settings.riskUsdt || config.riskUsdt;
+  const side = Math.random() > 0.5 ? 'LONG' : 'SHORT';
+  const movePct = Number((Math.random() * 2 * config.tpPct - config.slPct).toFixed(2));
+  const pnlUsdt = Number(((movePct / 100) * riskUsdt).toFixed(2));
+  const trade = { id: `trade_${Date.now()}`, time: new Date().toISOString(), pair: runtime.selectedPair, strategy: runtime.activeStrategy.strategyName, side, entryPrice: price, exitPrice: Number((price * (1 + movePct / 100)).toFixed(4)), qty: Number((riskUsdt / price).toFixed(6)), riskUsdt, pnlUsdt, pnlPct: movePct, status: 'CLOSED', mode: 'DRY_RUN' };
+  trades.push(trade); writeJson('trades', trades.slice(-300));
+  remember('trade_opened', runtime.selectedPair, `${side} ${price}`, 'opened');
+  remember('trade_closed', runtime.selectedPair, `pnl ${pnlUsdt}`, 'closed');
+  runtime.position = null;
+  runtime.cyclesCompleted = (runtime.cyclesCompleted || 0) + 1;
+  runtime.lastAction = `cycle ${runtime.cyclesCompleted}`;
+  const all = readJson('trades'); runtime.pnlUsdt = Number(all.reduce((s, t) => s + t.pnlUsdt, 0).toFixed(2)); runtime.pnlPct = Number(((runtime.pnlUsdt / Math.max(all.reduce((s, t) => s + (t.riskUsdt || 0), 1), 1)) * 100).toFixed(2));
+  if (!config.nonstop) { runtime.status = 'STOPPED'; runtime.activeStrategy = null; }
   writeJson('runtime', runtime);
 }
 
-function startEngine(getPrice) {
-  if (timer) clearInterval(timer);
-  timer = setInterval(() => tick(getPrice), 2500);
-}
-
-function stopEngine() {
-  if (timer) clearInterval(timer);
-  timer = null;
-}
-
+function startEngine(getPrice) { if (timer) clearInterval(timer); timer = setInterval(() => tick(getPrice), 3000); }
+function stopEngine() { if (timer) clearInterval(timer); timer = null; }
 module.exports = { startEngine, stopEngine };

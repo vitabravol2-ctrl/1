@@ -1,39 +1,10 @@
-const el = (id) => document.getElementById(id);
-let lastSuggestions = [];
-let welcomeShown = false;
-function addMsg(text, cls='ai'){ const d=document.createElement('div'); d.className=`msg ${cls}`; d.textContent=text; el('chatLog').appendChild(d); el('chatLog').scrollTop=el('chatLog').scrollHeight; }
-async function j(url,opt){ const r=await fetch(url,{headers:{'Content-Type':'application/json'},...opt}); return r.json(); }
-
-async function refresh(){
-  const [status, runtime, market, trades, logs] = await Promise.all([j('/api/status'),j('/api/runtime'),j('/api/market'),j('/api/trades'),j('/api/logs')]);
-  el('topStatus').textContent=`${status.mode} | AI ${status.aiMode} | Market Source: ${status.marketSource} | Server ${status.server}`;
-  el('runtime').textContent=JSON.stringify(runtime,null,2);
-  const m = market[runtime.selectedPair]||{};
-  el('market').innerHTML=`<h3>${runtime.selectedPair} (${m.sourceStatus || 'DEMO'})</h3><p>Price: ${m.price ?? '-'}</p><p>Bid: ${m.bid ?? '-'}</p><p>Ask: ${m.ask ?? '-'}</p><p>Spread: ${m.spreadPct ?? 0}%</p><p>24h Change: ${m.priceChange24hPct ?? 0}%</p><p>Volume: ${m.volume24h || m.volume || 0}</p><p>Volatility: ${m.volatility || '-'}</p><p>Trend: ${m.trend || '-'}</p>`;
-  const s = runtime.activeStrategy || runtime.pendingPlan;
-  el('strategy').innerHTML=s?`<h3>${s.strategyName}</h3><p>Direction: ${s.settings.direction}</p><p>TP: ${s.settings.tpPct}%</p><p>SL: ${s.settings.slPct}%</p><p>Risk: ${s.settings.riskUsdt} USDT</p><p>Non-stop: ${s.settings.nonstop?'ON':'OFF'}</p><p>Status: ${s.status || runtime.status}</p>`:'<p>No strategy selected.</p>';
-  el('pendingPlan').innerHTML = runtime.pendingPlan ? `<h3>⚠ Strategy Plan (DRY-RUN)</h3><pre>${JSON.stringify(runtime.pendingPlan,null,2)}</pre><button id='confirmPlan'>Confirm</button><button id='cancelPlan'>Cancel</button>` : '<p>No pending plan.</p>';
-  el('trades').innerHTML = trades.slice(-8).reverse().map(t=>`<div>${t.time} | ${t.strategy} | ${t.side} | PnL ${t.pnlUsdt} USDT (${t.mode})</div>`).join('');
-  el('errors').innerHTML = logs.slice(-5).reverse().map(l=>`<div style='color:#f87171'>${l.time} ${l.type}: ${l.message}</div>`).join('') || '<div>No errors</div>';
-  const c = el('confirmPlan'); if(c) c.onclick=async()=>{ await j('/api/confirm-plan',{method:'POST'}); refresh(); };
-  const cc = el('cancelPlan'); if(cc) cc.onclick=async()=>{ await j('/api/cancel-plan',{method:'POST'}); refresh(); };
-
-  if (!welcomeShown) {
-    addMsg('Выбери пару и напиши: какие стратегии предложишь?');
-    welcomeShown = true;
-  }
-}
-
-el('chatForm').onsubmit=async(e)=>{e.preventDefault(); const msg=el('chatInput').value.trim(); if(!msg) return; addMsg(msg,'user'); el('chatInput').value=''; const r=await j('/api/chat',{method:'POST',body:JSON.stringify({message:msg})}); if(r.text) addMsg(r.text); if(r.suggestions){ lastSuggestions=r.suggestions; addMsg('Предложенные стратегии: '+r.suggestions.map(s=>s.name).join(', ')); } if(r.plan) addMsg('План создан. Проверь и подтверди.'); refresh();};
-el('chatInput').addEventListener('keydown',(e)=>{ if (e.key==='Enter' && !e.shiftKey){ e.preventDefault(); el('chatForm').requestSubmit(); } });
-document.querySelectorAll('[data-q]').forEach(b=>b.onclick=()=>{el('chatInput').value=b.dataset.q; el('chatForm').requestSubmit();});
-el('pair').onchange=async(e)=>{await j('/api/select-pair',{method:'POST',body:JSON.stringify({pair:e.target.value})});refresh();};
-el('startSelected').onclick=async()=>{ const s=(lastSuggestions[0]||{}).id||'both-side-scalping'; await j('/api/create-plan',{method:'POST',body:JSON.stringify({strategyId:s})}); addMsg('Создан план для запуска выбранной стратегии.'); refresh(); };
-el('stopBtn').onclick=async()=>{ await j('/api/stop-strategy',{method:'POST'}); addMsg('Стратегия остановлена.'); refresh(); };
-el('emergencyBtn').onclick=async()=>{ await j('/api/emergency-stop',{method:'POST'}); addMsg('Emergency stop активирован.'); refresh(); };
-el('testBinanceBtn').onclick=async()=>{ const r=await j('/api/test-binance'); addMsg(`Market test: ${r.source}, BTCUSDT ${r.price}`); };
-el('testGptBtn').onclick=async()=>{ const r=await j('/api/test-gpt',{method:'POST',body:JSON.stringify({message:'какие стратегии предложишь?'})}); addMsg(`GPT test (${r.aiMode}): ${r.response.answer}`); };
-el('reportBtn').onclick=async()=>{ const r=await j('/api/report',{method:'POST'}); el('reportText').value=r.report; el('reportModal').classList.remove('hidden'); };
-el('closeReport').onclick=()=>el('reportModal').classList.add('hidden');
-el('toggleSettingsBtn').onclick=()=>el('settingsPanel').classList.toggle('hidden');
-setInterval(refresh,3000); refresh();
+const el=(id)=>document.getElementById(id); const j=(u,o)=>fetch(u,{headers:{'Content-Type':'application/json'},...o}).then(r=>r.json());
+function settingsForm(c){return `<label>mode <select id='cfg_mode'><option ${c.mode==='DRY_RUN'?'selected':''}>DRY_RUN</option><option ${c.mode==='TESTNET'?'selected':''}>TESTNET</option><option ${c.mode==='LIVE_LOCKED'?'selected':''}>LIVE_LOCKED</option></select></label><label>riskUsdt <input id='cfg_riskUsdt' value='${c.riskUsdt}'/></label><label>maxRiskUsdt <input id='cfg_maxRiskUsdt' value='${c.maxRiskUsdt}'/></label><label>maxDailyLossUsdt <input id='cfg_maxDailyLossUsdt' value='${c.maxDailyLossUsdt}'/></label><label>tpPct <input id='cfg_tpPct' value='${c.tpPct}'/></label><label>slPct <input id='cfg_slPct' value='${c.slPct}'/></label><label>nonstop <input type='checkbox' id='cfg_nonstop' ${c.nonstop?'checked':''}/></label><label>maxOpenTrades <input id='cfg_maxOpenTrades' value='${c.maxOpenTrades}'/></label><label>tradeCooldownSec <input id='cfg_tradeCooldownSec' value='${c.tradeCooldownSec}'/></label><label>aiMode <select id='cfg_aiMode'><option ${c.aiMode==='SIM'?'selected':''}>SIM</option><option ${c.aiMode==='GPT'?'selected':''}>GPT</option></select></label><p>binanceApiStatus: ${c.binanceApiStatus}</p><p>testnetEnabled: ${c.testnetEnabled}</p><p>liveTradingEnabled: false (locked)</p>`}
+async function refresh(){const [s,c,r,m,t,l]=await Promise.all([j('/api/status'),j('/api/config'),j('/api/runtime'),j('/api/market'),j('/api/trades'),j('/api/logs')]);el('topStatus').textContent=`${s.mode} | ${s.aiMode} | ${s.runtimeStatus}`;el('settingsPanel').innerHTML=settingsForm(c);el('runtime').textContent=JSON.stringify(r,null,2);el('market').textContent=JSON.stringify(m[r.selectedPair]||{},null,2);el('trades').textContent=JSON.stringify(t.slice(-5),null,2);el('errors').textContent=JSON.stringify(l.slice(-5),null,2);el('pair').value=r.selectedPair;}
+el('saveSettings').onclick=async()=>{const body={mode:el('cfg_mode').value,riskUsdt:+el('cfg_riskUsdt').value,maxRiskUsdt:+el('cfg_maxRiskUsdt').value,maxDailyLossUsdt:+el('cfg_maxDailyLossUsdt').value,tpPct:+el('cfg_tpPct').value,slPct:+el('cfg_slPct').value,nonstop:el('cfg_nonstop').checked,maxOpenTrades:+el('cfg_maxOpenTrades').value,tradeCooldownSec:+el('cfg_tradeCooldownSec').value,aiMode:el('cfg_aiMode').value,selectedPair:el('pair').value,liveTradingEnabled:false};await j('/api/config',{method:'POST',body:JSON.stringify(body)});refresh();};
+el('startSelected').onclick=async()=>{await j('/api/create-plan',{method:'POST',body:JSON.stringify({strategyId:'both-side-scalping'})});refresh();};
+el('confirmPlan').onclick=async()=>{await j('/api/confirm-plan',{method:'POST'});refresh();};
+el('cancelPlan').onclick=async()=>{await j('/api/cancel-plan',{method:'POST'}).catch(()=>{});refresh();};
+el('pauseBtn').onclick=async()=>{await j('/api/pause',{method:'POST'});refresh();}; el('resumeBtn').onclick=async()=>{await j('/api/resume',{method:'POST'});refresh();}; el('stopBtn').onclick=async()=>{await j('/api/stop-strategy',{method:'POST'});refresh();}; el('emergencyBtn').onclick=async()=>{await j('/api/emergency-stop',{method:'POST'});refresh();};
+el('testPublic').onclick=async()=>alert(JSON.stringify(await j('/api/binance/public-test'))); el('testPrivate').onclick=async()=>alert(JSON.stringify(await j('/api/binance/private-test'))); el('testTestnet').onclick=async()=>alert(JSON.stringify(await j('/api/binance/testnet-test'))); el('checkFilters').onclick=async()=>alert(JSON.stringify(await j('/api/binance/symbol-filters/'+el('pair').value)));
+setInterval(refresh,3000);refresh();
