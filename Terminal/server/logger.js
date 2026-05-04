@@ -10,7 +10,9 @@ function dedupKey(type, message, details = {}) {
 function logError(type, message, details = {}, options = {}) {
   const now = Date.now();
   const dedupWindowMs = options.dedupWindowMs ?? DEFAULT_DEDUP_WINDOW_MS;
-  const logs = readJson('logs');
+  const currentLogs = readJson('logs');
+  const logs = Array.isArray(currentLogs) ? currentLogs : [];
+  if (!Array.isArray(currentLogs)) writeJson('logs', []);
   const key = dedupKey(type, message, details);
   const duplicate = logs.findLast((entry) => {
     if (!entry?.dedupKey || entry.dedupKey !== key) return false;
