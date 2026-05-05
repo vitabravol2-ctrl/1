@@ -2,128 +2,73 @@ const fs = require('fs');
 const path = require('path');
 
 const dataDir = path.join(__dirname, '..', 'data');
-const brokenDir = path.join(dataDir, 'broken');
+
+const files = {
+  config: 'config.json',
+  state: 'state.json',
+  trades: 'trades.json',
+  logs: 'logs.json',
+  secrets: 'secrets.local.json'
+};
 
 const defaults = {
   config: {
-    version: '0.3.0',
+    pair: 'BTCUSDT',
+    useTestnet: true,
     mode: 'DRY_RUN',
-    selectedPair: 'BTCUSDT',
-    riskUsdt: 20,
-    maxRiskUsdt: 50,
-    maxDailyLossUsdt: 100,
-    tpPct: 1,
-    slPct: 1,
-    nonstop: false,
-    maxOpenTrades: 1,
-    tradeCooldownSec: 20,
-    aiMode: 'SIM',
-    marketSourcePriority: ['BINANCE', 'ALT_PUBLIC', 'DEMO'],
-    binanceApiStatus: 'UNKNOWN',
-    testnetEnabled: true,
-    liveTradingEnabled: false,
-    emergencyStop: false
+    scalping: {
+      orderSizeUsdt: 20,
+      takeProfitPct: 0.2,
+      stopLossPct: 0.2,
+      buyBelowPct: 0.1,
+      sellAbovePct: 0.1,
+      cooldownSeconds: 15,
+      maxOpenPosition: 1,
+      maxDailyLoss: 20
+    }
   },
-  runtime: {
-    selectedPair: 'BTCUSDT',
-    pendingPlan: null,
-    activeStrategy: null,
-    status: 'IDLE',
+  state: {
+    connectionStatus: 'DISCONNECTED',
+    botStatus: 'STOPPED',
+    accountBalance: 0,
     position: null,
-    cyclesCompleted: 0,
-    lastAction: 'init',
-    pnlUsdt: 0,
-    pnlPct: 0
+    unrealizedPnl: 0,
+    realizedPnl: 0,
+    cyclesCount: 0,
+    lastAction: 'IDLE',
+    emergencyStop: false,
+    errors: []
   },
-  logs: [],
   trades: [],
-  memory: [],
-  strategies: [],
-  market: {}
+  logs: []
 };
 
-function filePath(name) { return path.join(dataDir, `${name}.json`); }
-
-function ensureDataFiles() {
+function ensure() {
   if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
-  Object.entries(defaults).forEach(([name, value]) => {
-    const fp = filePath(name);
-    if (!fs.existsSync(fp)) fs.writeFileSync(fp, JSON.stringify(value, null, 2));
+  Object.entries(files).forEach(([key, file]) => {
+    const full = path.join(dataDir, file);
+    if (!fs.existsSync(full) && defaults[key] !== undefined) {
+      fs.writeFileSync(full, JSON.stringify(defaults[key], null, 2));
+    }
   });
 }
 
-function ensureBrokenDir() {
-  if (!fs.existsSync(brokenDir)) fs.mkdirSync(brokenDir, { recursive: true });
-}
-
-function backupBrokenJson(name, raw) {
-  ensureBrokenDir();
-  const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-  const backupPath = path.join(brokenDir, `${name}.${timestamp}.json`);
-  fs.writeFileSync(backupPath, raw);
-}
-
-function defaultValue(name) {
-  const value = defaults[name];
-  return value === undefined ? null : JSON.parse(JSON.stringify(value));
-}
-
-function sanitizeMergeConflictJson(raw) {
-  if (typeof raw !== 'string' || raw.length === 0) return raw;
-  const lines = raw.split(/\r?\n/);
-  if (!lines.some((line) => line.startsWith('<<<<<<< ') || line.startsWith('=======') || line.startsWith('>>>>>>> '))) {
-    return raw;
-  }
-
-  const cleaned = [];
-  let inConflict = false;
-  let useIncoming = false;
-  for (const line of lines) {
-    if (line.startsWith('<<<<<<< ')) {
-      inConflict = true;
-      useIncoming = false;
-      continue;
-    }
-    if (inConflict && line.startsWith('=======')) {
-      useIncoming = true;
-      continue;
-    }
-    if (inConflict && line.startsWith('>>>>>>> ')) {
-      inConflict = false;
-      useIncoming = false;
-      continue;
-    }
-    if (!inConflict || useIncoming) cleaned.push(line);
-  }
-
-  return cleaned.join('\n');
-}
-
-function safeReadJson(name) {
-  const fp = filePath(name);
-  const raw = fs.existsSync(fp) ? fs.readFileSync(fp, 'utf-8') : '';
-  const candidate = sanitizeMergeConflictJson(raw);
+function read(name) {
+  ensure();
+  const file = path.join(dataDir, files[name]);
   try {
-    return JSON.parse(candidate);
+    return JSON.parse(fs.readFileSync(file, 'utf-8'));
   } catch {
-    const fallback = defaultValue(name);
-    try {
-      backupBrokenJson(name, raw);
-    } catch {
-      // no-op: keep server alive even if backup fails
-    }
-    writeJson(name, fallback);
+    const fallback = defaults[name] ?? {};
+    fs.writeFileSync(file, JSON.stringify(fallback, null, 2));
     return fallback;
   }
 }
 
-function readJson(name) {
-  return safeReadJson(name);
+function write(name, data) {
+  ensure();
+  const file = path.join(dataDir, files[name]);
+  fs.writeFileSync(file, JSON.stringify(data, null, 2));
 }
 
-function writeJson(name, value) {
-  fs.writeFileSync(filePath(name), JSON.stringify(value, null, 2));
-  return value;
-}
-
-module.exports = { ensureDataFiles, readJson, safeReadJson, writeJson, defaults };
+module.exports = { ensure, read, write };
