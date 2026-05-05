@@ -1,10 +1,19 @@
-const el=(id)=>document.getElementById(id); const j=(u,o)=>fetch(u,{headers:{'Content-Type':'application/json'},...o}).then(r=>r.json());
-function settingsForm(c){return `<label>mode <select id='cfg_mode'><option ${c.mode==='DRY_RUN'?'selected':''}>DRY_RUN</option><option ${c.mode==='TESTNET'?'selected':''}>TESTNET</option><option ${c.mode==='LIVE_LOCKED'?'selected':''}>LIVE_LOCKED</option></select></label><label>riskUsdt <input id='cfg_riskUsdt' value='${c.riskUsdt}'/></label><label>maxRiskUsdt <input id='cfg_maxRiskUsdt' value='${c.maxRiskUsdt}'/></label><label>maxDailyLossUsdt <input id='cfg_maxDailyLossUsdt' value='${c.maxDailyLossUsdt}'/></label><label>tpPct <input id='cfg_tpPct' value='${c.tpPct}'/></label><label>slPct <input id='cfg_slPct' value='${c.slPct}'/></label><label>nonstop <input type='checkbox' id='cfg_nonstop' ${c.nonstop?'checked':''}/></label><label>maxOpenTrades <input id='cfg_maxOpenTrades' value='${c.maxOpenTrades}'/></label><label>tradeCooldownSec <input id='cfg_tradeCooldownSec' value='${c.tradeCooldownSec}'/></label><label>aiMode <select id='cfg_aiMode'><option ${c.aiMode==='SIM'?'selected':''}>SIM</option><option ${c.aiMode==='GPT'?'selected':''}>GPT</option></select></label><p>binanceApiStatus: ${c.binanceApiStatus}</p><p>testnetEnabled: ${c.testnetEnabled}</p><p>liveTradingEnabled: false (locked)</p>`}
-async function refresh(){const [s,c,r,m,t,l]=await Promise.all([j('/api/status'),j('/api/config'),j('/api/runtime'),j('/api/market'),j('/api/trades'),j('/api/logs')]);el('topStatus').textContent=`${s.mode} | ${s.aiMode} | ${s.runtimeStatus}`;el('settingsPanel').innerHTML=settingsForm(c);el('runtime').textContent=JSON.stringify(r,null,2);el('market').textContent=JSON.stringify(m[r.selectedPair]||{},null,2);el('trades').textContent=JSON.stringify(t.slice(-5),null,2);el('errors').textContent=JSON.stringify(l.slice(-5),null,2);el('pair').value=r.selectedPair;}
-el('saveSettings').onclick=async()=>{const body={mode:el('cfg_mode').value,riskUsdt:+el('cfg_riskUsdt').value,maxRiskUsdt:+el('cfg_maxRiskUsdt').value,maxDailyLossUsdt:+el('cfg_maxDailyLossUsdt').value,tpPct:+el('cfg_tpPct').value,slPct:+el('cfg_slPct').value,nonstop:el('cfg_nonstop').checked,maxOpenTrades:+el('cfg_maxOpenTrades').value,tradeCooldownSec:+el('cfg_tradeCooldownSec').value,aiMode:el('cfg_aiMode').value,selectedPair:el('pair').value,liveTradingEnabled:false};await j('/api/config',{method:'POST',body:JSON.stringify(body)});refresh();};
-el('startSelected').onclick=async()=>{await j('/api/create-plan',{method:'POST',body:JSON.stringify({strategyId:'both-side-scalping'})});refresh();};
-el('confirmPlan').onclick=async()=>{await j('/api/confirm-plan',{method:'POST'});refresh();};
-el('cancelPlan').onclick=async()=>{await j('/api/cancel-plan',{method:'POST'}).catch(()=>{});refresh();};
-el('pauseBtn').onclick=async()=>{await j('/api/pause',{method:'POST'});refresh();}; el('resumeBtn').onclick=async()=>{await j('/api/resume',{method:'POST'});refresh();}; el('stopBtn').onclick=async()=>{await j('/api/stop-strategy',{method:'POST'});refresh();}; el('emergencyBtn').onclick=async()=>{await j('/api/emergency-stop',{method:'POST'});refresh();};
-el('testPublic').onclick=async()=>alert(JSON.stringify(await j('/api/binance/public-test'))); el('testPrivate').onclick=async()=>alert(JSON.stringify(await j('/api/binance/private-test'))); el('testTestnet').onclick=async()=>alert(JSON.stringify(await j('/api/binance/testnet-test'))); el('checkFilters').onclick=async()=>alert(JSON.stringify(await j('/api/binance/symbol-filters/'+el('pair').value)));
-setInterval(refresh,3000);refresh();
+async function get(u){return fetch(u).then(r=>r.json())}
+async function post(u,b={}){const r=await fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)});const j=await r.json();if(!j.ok&&j.error)alert(j.error);refresh();return j}
+
+async function connectApi(){const useTestnet=document.getElementById('useTestnet').checked; if(!useTestnet){alert('LIVE mode warning: blocked in v1.0.0');}
+const r=await post('/api/connect',{apiKey:apiKey.value,apiSecret:apiSecret.value,useTestnet});document.getElementById('env').textContent=useTestnet?'TESTNET':'LIVE'; if(r.ok)refresh();}
+
+async function saveSettings(){const mode=modeEl.value; if(mode==='LIVE_LOCKED') alert('LIVE is blocked and requires future unlock + double confirmation.');
+await post('/api/save-settings',{mode,scalping:{orderSizeUsdt:+orderSizeUsdt.value,takeProfitPct:+takeProfitPct.value,stopLossPct:+stopLossPct.value,buyBelowPct:+buyBelowPct.value,sellAbovePct:+sellAbovePct.value,cooldownSeconds:+cooldownSeconds.value,maxOpenPosition:+maxOpenPosition.value,maxDailyLoss:+maxDailyLoss.value}})}
+
+const modeEl=document.getElementById('mode');
+setInterval(async()=>{
+ const m=await get('/api/market'); price.textContent=m.price; bid.textContent=m.bid; ask.textContent=m.ask; spread.textContent=m.spread; socket.textContent=m.socketStatus;
+ const s=await get('/api/state'); conn.textContent=s.connectionStatus; balance.textContent=s.accountBalance; runtime.textContent=JSON.stringify(s,null,2);
+ const t=await get('/api/trades'); trades.textContent=JSON.stringify(t.slice(-20),null,2);
+ const l=await get('/api/logs'); errors.textContent=JSON.stringify(l,null,2);
+},1200);
+
+async function refresh(){const c=await get('/api/settings'); modeEl.value=c.mode;}
+refresh();
